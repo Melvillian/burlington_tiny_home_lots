@@ -9,6 +9,9 @@ He's downloaded the parcel data (`Tax_Parcels.geojson`) from data.burlingtonvt.g
 ## Work To Do
 
 [ ] Determine the boundaries for the NNE (i.e. a set of coordinates) and bound the parcel data to that area.
+
 [ ] Write a function that, given a parcel and its coordinates from `Tax_Parcels.geojson`, returns the building structure in `Vermont.geojson` that is on that parcel. This will allow us to determine the size of the backyard for that parcel by subtracking out the structure, and using the placement of the structure to determine what the frontyard is, and remove that.
+
 [ ] Write a function that, given a backyard size, returns whether or not it is large enough to fit a 350 sqft tiny home.
+
 [ ] Finally, iterate through all of the parcels in `Tax_Parcels.geojson` and determine how many of them have backyards large enough to fit a 350 sqft tiny home. Also include what percentage of the total number of parcels have backyards large enough to fit a 350 sqft tiny home.
