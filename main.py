@@ -27,10 +27,22 @@ def find_largest_inscribed_rectangle(polygon, precision=1.0, angle_step=5):
         # Rotate polygon to test this orientation
         rotated = rotate(polygon, angle)
         rot_minx, rot_miny, rot_maxx, rot_maxy = rotated.bounds
-
+        print(
+            "angle: ",
+            angle,
+            "rot_minx: ",
+            rot_minx,
+            "rot_miny: ",
+            rot_miny,
+            "rot_maxx: ",
+            rot_maxx,
+            "rot_maxy: ",
+            rot_maxy,
+        )
         # Create a grid of points to test
         for x in np.arange(rot_minx, rot_maxx, precision):
             for y in np.arange(rot_miny, rot_maxy, precision):
+                print("x: ", x, "y: ", y)
                 # Try growing rectangles from this point
                 for width in np.arange(precision, rot_maxx - x, precision):
                     for height in np.arange(precision, rot_maxy - y, precision):
