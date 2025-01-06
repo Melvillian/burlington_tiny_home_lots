@@ -76,7 +76,7 @@ SHAPE_Area: Real (0.0)
 clip the buildings dataset and project to [UTM zone 19](https://epsg.io/26919) so that we can use meters for calculations and check it
 
 ```bash
-ogr2ogr -f GeoJSON new_north_end_buildings.geojson Vermont.geojson -spat -73.277012 44.445915 -73.175797 44.539938 -to_srs EPSG:26919
+ogr2ogr -f GeoJSON new_north_end_buildings.geojson Vermont.geojson -spat -73.277012 44.445915 -73.175797 44.539938 -t_srs EPSG:26919
 
 ogrinfo new_north_end_buildings.geojson Vermont -so
 INFO: Open of `new_north_end_buildings.geojson'
