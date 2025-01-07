@@ -5,6 +5,9 @@ import psycopg2
 from shapely import wkb
 from shapely.wkt import loads
 
+from multiprocessing import Pool
+
+
 MINIMUM_SIZE_OF_SECONDARY_UNIT_METERS = (
     32.516  # 350 sq ft in sq meters. No building in Burlington can be smaller than this
 )
@@ -78,30 +81,38 @@ def check_parcel_buildability(
 
     buildable_parcels = []
 
+    pool = Pool(...)
     num_parcels = 0
-    for address, geom_wkt in cursor:
-        num_parcels += 1
-        # print(f"Checking {address}")
-        polygon = loads(geom_wkt)
-        rectangle, area, angle = find_largest_inscribed_rectangle(polygon)
+    for idx, (address, geom_wkt) in enumerate(cursor):
+        # add task to worker pool
 
-        if area >= min_area:
-            print(
-                f"Found buildable parcel: #{num_parcels} {address} with area {area:.1f} sq meters"
-            )
+    # wait for them to complete
 
-            buildable_parcels.append(
-                {
-                    "num_parcel": num_parcels,
-                    "address": address,
-                    "area": area,
-                    "angle": angle,
-                }
-            )
-            with open("buildable_parcels.txt", "a") as f:
-                f.write(f"#{num_parcels} {address}: {area:.2f} square meters\n")
+    with open("buildable_parcels.txt", "a") as f:
+        f.write(f"#{num_parcels} {address}: {area:.2f} square meters\n")
 
     return buildable_parcels, num_parcels
+
+
+def process_polygon(... blah ...):
+    num_parcels += 1
+    # print(f"Checking {address}")
+    polygon = loads(geom_wkt)
+    rectangle, area, angle = find_largest_inscribed_rectangle(polygon)
+
+    if area >= min_area:
+        print(
+            f"Found buildable parcel: #{num_parcels} {address} with area {area:.1f} sq meters"
+        )
+
+        buildable_parcels.append(
+            {
+                "num_parcel": num_parcels,
+                "address": address,
+                "area": area,
+                "angle": angle,
+            }
+        )
 
 
 if __name__ == "__main__":
