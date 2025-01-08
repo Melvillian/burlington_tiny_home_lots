@@ -74,7 +74,7 @@ def check_parcel_buildability(
     cursor.execute(
         """
         SELECT siteaddress, geom 
-        FROM setback_parcels
+        FROM buildable_parcel_areas
         WHERE geom IS NOT NULL
     """
     )
@@ -106,13 +106,6 @@ def check_parcel_buildability(
         pool.join()
 
     num_parcels = len(rows)
-
-    # Write results to file
-    with open("buildable_parcels.txt", "a") as f:
-        for parcel in buildable_parcels:
-            f.write(
-                f"#{parcel['parcel_num']} {parcel['address']}: {parcel['area']:.2f} square meters\n"
-            )
 
     return buildable_parcels, num_parcels
 
