@@ -5,7 +5,7 @@ import psycopg2
 from shapely import wkb
 from shapely.wkt import loads
 
-from multiprocessing import Pool
+from multiprocessing import Pool, cpu_count
 
 
 MINIMUM_SIZE_OF_SECONDARY_UNIT_METERS = (
@@ -81,38 +81,58 @@ def check_parcel_buildability(
 
     buildable_parcels = []
 
-    pool = Pool(...)
-    num_parcels = 0
-    for idx, (address, geom_wkt) in enumerate(cursor):
-        # add task to worker pool
+    # Create a process pool with number of CPUs available
+    pool = Pool(processes=cpu_count())
 
-    # wait for them to complete
+    # Prepare all tasks
+    tasks = []
+    rows = cursor.fetchall()
+    for idx, (address, geom_wkt) in enumerate(rows):
+        tasks.append((idx, address, geom_wkt, min_area))
 
+    try:
+        # Map tasks to worker processes and get results
+        results = pool.starmap(process_polygon, tasks)
+
+        # Filter out None results (non-buildable parcels) and collect valid ones
+        buildable_parcels = [r for r in results if r is not None]
+
+    except Exception as e:
+        print(f"Error during parallel processing: {e}")
+
+    finally:
+        # Clean up resources
+        pool.close()
+        pool.join()
+
+    num_parcels = len(rows)
+
+    # Write results to file
     with open("buildable_parcels.txt", "a") as f:
-        f.write(f"#{num_parcels} {address}: {area:.2f} square meters\n")
+        for parcel in buildable_parcels:
+            f.write(
+                f"#{parcel['parcel_num']} {parcel['address']}: {parcel['area']:.2f} square meters\n"
+            )
 
     return buildable_parcels, num_parcels
 
 
-def process_polygon(... blah ...):
-    num_parcels += 1
+def process_polygon(parcel_num, address, geom_wkt, min_area):
     # print(f"Checking {address}")
     polygon = loads(geom_wkt)
     rectangle, area, angle = find_largest_inscribed_rectangle(polygon)
 
     if area >= min_area:
         print(
-            f"Found buildable parcel: #{num_parcels} {address} with area {area:.1f} sq meters"
+            f"Found buildable parcel: #{parcel_num} {address} with area {area:.1f} sq meters"
         )
 
-        buildable_parcels.append(
-            {
-                "num_parcel": num_parcels,
-                "address": address,
-                "area": area,
-                "angle": angle,
-            }
-        )
+        return {
+            "parcel_num": parcel_num,
+            "address": address,
+            "area": area,
+            "angle": angle,
+        }
 
 
 if __name__ == "__main__":
