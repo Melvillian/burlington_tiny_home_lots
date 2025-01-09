@@ -90,20 +90,20 @@ def check_parcel_buildability(
     for idx, (address, geom_wkt) in enumerate(rows):
         tasks.append((idx, address, geom_wkt, min_area))
 
-    try:
-        # Map tasks to worker processes and get results
-        results = pool.starmap(process_polygon, tasks)
+    results = []
+    errors = []
 
-        # Filter out None results (non-buildable parcels) and collect valid ones
-        buildable_parcels = [r for r in results if r is not None]
+    for result in pool.starmap(process_polygon, tasks):
+        if isinstance(result, Exception):
+            errors.append(result)
+        elif result is not None:
+            results.append(result)
 
-    except Exception as e:
-        print(f"Error during parallel processing: {e}")
+    # Print errors after all tasks complete
+    for error in errors:
+        print(f"Error processing parcel: {error}")
 
-    finally:
-        # Clean up resources
-        pool.close()
-        pool.join()
+    buildable_parcels = results
 
     num_parcels = len(rows)
 
@@ -112,20 +112,23 @@ def check_parcel_buildability(
 
 def process_polygon(parcel_num, address, geom_wkt, min_area):
     # print(f"Checking {address}")
-    polygon = loads(geom_wkt)
-    rectangle, area, angle = find_largest_inscribed_rectangle(polygon)
+    try:
+        polygon = loads(geom_wkt)
+        rectangle, area, angle = find_largest_inscribed_rectangle(polygon)
 
-    if area >= min_area:
-        print(
-            f"Found buildable parcel: #{parcel_num} {address} with area {area:.1f} sq meters"
-        )
+        if area >= min_area:
+            print(
+                f"Found buildable parcel: #{parcel_num} {address} with area {area:.1f} sq meters"
+            )
 
-        return {
-            "parcel_num": parcel_num,
-            "address": address,
-            "area": area,
-            "angle": angle,
-        }
+            return {
+                "parcel_num": parcel_num,
+                "address": address,
+                "area": area,
+                "angle": angle,
+            }
+    except Exception as e:
+        return e
 
 
 if __name__ == "__main__":
