@@ -1,7 +1,7 @@
 from shapely.geometry import Polygon, box
 from shapely.affinity import rotate
 import numpy as np
-import psycopg2
+from psycopg2 import pool
 from shapely import wkb
 from shapely.wkt import loads
 
@@ -54,11 +54,10 @@ def find_largest_inscribed_rectangle(
                             area = test_rect.area
                             if area > max_area:
                                 max_area = area
-                                # Rotate rectangle back to original orientation
-                                best_rectangle = rotate(test_rect, -angle)
                                 best_angle = angle
 
-                                # speed up the process by short circuiting if the area is large enough
+                                # speed up the process by short circuiting if the rectnagle is large enough
+                                # to fit in the minimum Burlington tiny home structure size
                                 if area >= minimum_are_needed:
                                     return best_rectangle, area, best_angle
 
@@ -66,14 +65,16 @@ def find_largest_inscribed_rectangle(
 
 
 def check_parcel_buildability(
-    conn, min_area=MINIMUM_SIZE_OF_SECONDARY_UNIT_METERS
-):  # 350 sq ft in sq meters
+    connection_pool, min_area=MINIMUM_SIZE_OF_SECONDARY_UNIT_METERS
+):
+    conn = connection_pool.getconn()
+
     cursor = conn.cursor()
 
     # Query setback parcels
     cursor.execute(
         """
-        SELECT siteaddress, geom 
+        SELECT ogc_fid, siteaddress, geom, tiny_home_structure
         FROM buildable_parcel_areas
         WHERE geom IS NOT NULL
     """
@@ -87,39 +88,96 @@ def check_parcel_buildability(
     # Prepare all tasks
     tasks = []
     rows = cursor.fetchall()
-    for idx, (address, geom_wkt) in enumerate(rows):
-        tasks.append((idx, address, geom_wkt, min_area))
 
-    results = []
+    # we're done with the pre-task db usage, so let's tidy up
+    # those db resources
+    cursor.close()
+    connection_pool.putconn(conn)
+
+    for ogc_fid, address, geom_wkt, tiny_home_structure in rows:
+        tasks.append(
+            (connection_pool, ogc_fid, address, geom_wkt, tiny_home_structure, min_area)
+        )
+
     errors = []
-
     for result in pool.starmap(process_polygon, tasks):
         if isinstance(result, Exception):
             errors.append(result)
-        elif result is not None:
-            results.append(result)
 
     # Print errors after all tasks complete
+    print("Errors:")
     for error in errors:
         print(f"Error processing parcel: {error}")
 
-    buildable_parcels = results
+    # now that we've updated the DB with the results,
+    # let's fetch those results, cleanup, and return our results
 
-    num_parcels = len(rows)
+    conn = connection_pool.getconn()
+    cursor = conn.cursor()
 
-    return buildable_parcels, num_parcels
+    # Query setback parcels
+    cursor.execute(
+        """
+        SELECT ogc_fid, siteaddress, geom, tiny_home_structure
+        FROM buildable_parcel_areas
+        WHERE geom IS NOT NULL
+    """
+    )
+
+    rows = cursor.fetchall()
+
+    # we're done with the pre-task db usage, so let's tidy up
+    # those db resources
+    cursor.close()
+    connection_pool.putconn(conn)
+
+    buildable_parcels = []
+    nonbuildable_parcels = []
+    missed_parcels = []
+    for ogc_fid, address, geom_wkt, tiny_home_structure in rows:
+        if tiny_home_structure == "":
+            nonbuildable_parcels.append(
+                (ogc_fid, address, geom_wkt, tiny_home_structure)
+            )
+        elif tiny_home_structure != None and tiny_home_structure != "":
+            buildable_parcels.append((ogc_fid, address, geom_wkt, tiny_home_structure))
+        else:
+            missed_parcels.append((ogc_fid, address, geom_wkt, tiny_home_structure))
+
+    return len(rows), buildable_parcels, nonbuildable_parcels, missed_parcels
 
 
-def process_polygon(parcel_num, address, geom_wkt, min_area):
+def process_polygon(
+    connection_pool, parcel_num, address, geom_wkt, tiny_home_structure, min_area
+):
     # print(f"Checking {address}")
+    conn = connection_pool.getconn()
     try:
+        if tiny_home_structure is not None:
+            return
+
+        # we haven't attempted to find a rectangle for this parcel yet,
+        # so let's do that
         polygon = loads(geom_wkt)
-        rectangle, area, angle = find_largest_inscribed_rectangle(polygon)
+        tiny_home_rectangle, area, angle = find_largest_inscribed_rectangle(polygon)
 
         if area >= min_area:
             print(
                 f"Found buildable parcel: #{parcel_num} {address} with area {area:.1f} sq meters"
             )
+
+            # update the buildable_parcel_areas table
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE buildable_parcel_areas
+                SET tiny_home_structure = %s 
+                WHERE ogc_fid = %s
+            """,
+                (tiny_home_rectangle, parcel_num),
+            )
+            conn.commit()
+            cursor.close()
 
             return {
                 "parcel_num": parcel_num,
@@ -127,23 +185,58 @@ def process_polygon(parcel_num, address, geom_wkt, min_area):
                 "area": area,
                 "angle": angle,
             }
+        else:
+            # no rectangle found, so we're not buildable.
+            # we represent that in the DB with an empty string
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE buildable_parcel_areas
+                SET tiny_home_structure = %s 
+                WHERE ogc_fid = %s
+            """,
+                ("", parcel_num),
+            )
+            conn.commit()
+            cursor.close()
     except Exception as e:
         return e
+    finally:
+        # Always return connection to pool
+        connection_pool.putconn(conn)
 
 
 if __name__ == "__main__":
-    conn = psycopg2.connect(
-        "host=localhost dbname=postgres user=postgres password=postgres port=6543"
+    # Create a threadsafe connection pool
+    connection_pool = pool.ThreadedConnectionPool(
+        minconn=1,
+        maxconn=20,  # Adjust based on your parallel process count
+        dbname="postgres",
+        user="postgres",
+        password="postgres",
+        host="localhost",
+        port=6543,
     )
 
-    buildable, num_parcels = check_parcel_buildability(conn)
-    num_buildable = len(buildable)
+    num_parcels, buildable_parcels, nonbuildable_parcels, missed_parcels = (
+        check_parcel_buildability(connection_pool)
+    )
+
+    # Clean up pool at end
+    connection_pool.closeall()
+
+    num_buildable = len(buildable_parcels)
 
     print(
-        f"Found {num_buildable} parcels out of {num_parcels} that could fit a 350 sq ft tiny home"
+        f"Found {len(buildable_parcels)} parcels out of {num_parcels} that could fit a 350 sq ft tiny home"
     )
-    print(f"Sample of buildable parcels:")
-    for parcel in buildable[:5]:
-        print(
-            f"Address: {parcel['address']}, Buildable Area: {parcel['area']:.1f} sq meters"
-        )
+    print(
+        f"Found {len(nonbuildable_parcels)} parcels out of {num_parcels} that could NOT fit a 350 sq ft tiny home"
+    )
+    print(
+        f"Found {len(missed_parcels)} parcels out of {num_parcels} that where something went wrong and we didn't process them correctly"
+    )
+
+    print(
+        "Analysis complete. Query the buildable_parcel_areas table of the database to find examples"
+    )

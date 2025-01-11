@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# delete the old postgis directory so we start from a clean database
+rm -rf pgdata/
+
 # Create a docker container with postgis
 # The data directory is mounted locally, so data will persist across database 
 # start / stops. there's a better way to do this with docker volumes, 
