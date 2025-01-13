@@ -6,7 +6,7 @@ We're trying to figure out how many parcels in the NNE of Burlington VT have bac
 
 `Tax_Parcels.geojson` is downloaded from [data.burlingtonvt.gov](https://data.burlingtonvt.gov/maps/8f26c016d0ba4fb6af7688668a4b6e81/about) and holds the geometries of land parcels in Burlington Vermont. `Vermont.geojson` is downloaded from Microsoft's [USBuildingFootprint](https://github.com/microsoft/USBuildingFootprints) and holds the geometries of buildings in Burlington.
 
-## Setup
+## Setup and Running the Analysis
 
 Note, this project was developed on a Mac, and I'm not sure how well it will work on Windows.
 
@@ -14,14 +14,28 @@ Also note you will need [`gdal`](https://formulae.brew.sh/formula/gdal) and [`do
 
 ```bash
 # make your virtual environment and install dependencies
-python -m venv ~/path/to/virtualenvs/burlington_tiny_home_lots
-source ~/path/to/virtualenvs/burlington_tiny_home_lots/bin/activate
+python -m venv .venv/
+source .venv/bin/activate
 pip install -r requirements.txt
 
 # setup the postgis docker container, transform the raw data,
 # load it into postgres, and build the appropriate tables
 ./setup.sh
 
-# finally, run the analysis
+# finally, run the analysis, this will take many hours (sorry!)
 python main.py
 ```
+
+## Visualization
+
+Once you've completed the analysis above, the `tiny_home_structure` column of the `buildable_parcel_areas` table will be populated with a non-empty string geometry value iff the a 350 sqft home can be built on that parcel. You can then run
+
+`python visualize_buildable_parcels.py`
+
+and it will plot 10 of the parcels in blue along with each parcel's 350 sqft rectangular home in red. Keep closing each plot to have the script generate the next one
+
+## Initial Findings
+
+Found 3712 parcels out of 8000 that could fit a 350 sq ft tiny home
+Found 3356 parcels out of 8000 that could NOT fit a 350 sq ft tiny home
+Found 932 parcels out of 8000 that where something went wrong and we didn't process them correctly

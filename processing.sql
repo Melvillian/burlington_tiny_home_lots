@@ -18,7 +18,7 @@ create table buildable_parcel_areas as
 select
     st_astext(st_difference(st_makevalid(new_north_end_parcels.geom), st_union(buffered_buildings.geom))) as geom,
     siteaddress,
-    new_north_end_parcels.ogc_fid
+    new_north_end_parcels.ogc_fid,
     NULL::text as tiny_home_structure
 from setback_parcels as new_north_end_parcels, buffered_buildings
 where st_intersects(buffered_buildings.geom, new_north_end_parcels.geom)

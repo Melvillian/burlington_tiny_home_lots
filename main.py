@@ -1,12 +1,21 @@
-from shapely.geometry import Polygon, box
-from shapely.affinity import rotate
+from shapely.geometry import box
 import numpy as np
+from shapely.affinity import rotate
 from psycopg2 import pool
-from shapely import wkb
 from shapely.wkt import loads
 
 from multiprocessing import Pool, cpu_count
 
+# Create a threadsafe connection pool
+connection_pool = pool.ThreadedConnectionPool(
+    minconn=1,
+    maxconn=20,  # Adjust based on your parallel process count
+    dbname="postgres",
+    user="postgres",
+    password="postgres",
+    host="localhost",
+    port=6543,
+)
 
 MINIMUM_SIZE_OF_SECONDARY_UNIT_METERS = (
     32.516  # 350 sq ft in sq meters. No building in Burlington can be smaller than this
@@ -54,19 +63,18 @@ def find_largest_inscribed_rectangle(
                             area = test_rect.area
                             if area > max_area:
                                 max_area = area
+                                best_rectangle = test_rect
                                 best_angle = angle
 
                                 # speed up the process by short circuiting if the rectnagle is large enough
                                 # to fit in the minimum Burlington tiny home structure size
                                 if area >= minimum_are_needed:
-                                    return best_rectangle, area, best_angle
+                                    return str(best_rectangle), area, best_angle
 
-    return best_rectangle, max_area, best_angle
+    return str(best_rectangle), max_area, best_angle
 
 
-def check_parcel_buildability(
-    connection_pool, min_area=MINIMUM_SIZE_OF_SECONDARY_UNIT_METERS
-):
+def check_parcel_buildability(min_area=MINIMUM_SIZE_OF_SECONDARY_UNIT_METERS):
     conn = connection_pool.getconn()
 
     cursor = conn.cursor()
@@ -95,9 +103,7 @@ def check_parcel_buildability(
     connection_pool.putconn(conn)
 
     for ogc_fid, address, geom_wkt, tiny_home_structure in rows:
-        tasks.append(
-            (connection_pool, ogc_fid, address, geom_wkt, tiny_home_structure, min_area)
-        )
+        tasks.append((ogc_fid, address, geom_wkt, tiny_home_structure, min_area))
 
     errors = []
     for result in pool.starmap(process_polygon, tasks):
@@ -139,7 +145,7 @@ def check_parcel_buildability(
             nonbuildable_parcels.append(
                 (ogc_fid, address, geom_wkt, tiny_home_structure)
             )
-        elif tiny_home_structure != None and tiny_home_structure != "":
+        elif tiny_home_structure is not None and tiny_home_structure != "":
             buildable_parcels.append((ogc_fid, address, geom_wkt, tiny_home_structure))
         else:
             missed_parcels.append((ogc_fid, address, geom_wkt, tiny_home_structure))
@@ -147,9 +153,7 @@ def check_parcel_buildability(
     return len(rows), buildable_parcels, nonbuildable_parcels, missed_parcels
 
 
-def process_polygon(
-    connection_pool, parcel_num, address, geom_wkt, tiny_home_structure, min_area
-):
+def process_polygon(parcel_num, address, geom_wkt, tiny_home_structure, min_area):
     # print(f"Checking {address}")
     conn = connection_pool.getconn()
     try:
@@ -178,13 +182,6 @@ def process_polygon(
             )
             conn.commit()
             cursor.close()
-
-            return {
-                "parcel_num": parcel_num,
-                "address": address,
-                "area": area,
-                "angle": angle,
-            }
         else:
             # no rectangle found, so we're not buildable.
             # we represent that in the DB with an empty string
@@ -207,19 +204,9 @@ def process_polygon(
 
 
 if __name__ == "__main__":
-    # Create a threadsafe connection pool
-    connection_pool = pool.ThreadedConnectionPool(
-        minconn=1,
-        maxconn=20,  # Adjust based on your parallel process count
-        dbname="postgres",
-        user="postgres",
-        password="postgres",
-        host="localhost",
-        port=6543,
-    )
 
     num_parcels, buildable_parcels, nonbuildable_parcels, missed_parcels = (
-        check_parcel_buildability(connection_pool)
+        check_parcel_buildability()
     )
 
     # Clean up pool at end
