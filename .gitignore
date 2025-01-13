@@ -1,0 +1,7 @@
+pgdata/
+buildable_parcels.txt
+new_north_end_buildings.geojson
+parcels.geojson
+debug.txt
+__pycache__/
+.venv
